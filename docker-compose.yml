@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: rdm-postgres
+    environment:
+      POSTGRES_USER: rdm
+      POSTGRES_PASSWORD: rdm
+      POSTGRES_DB: rdmdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - rdm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rdm -d rdmdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: rdm-minio
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - rdm_minio:/data
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rdm-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=rdmdb;Username=rdm;Password=rdm"
+      S3__Endpoint: "minio:9000"
+      S3__AccessKey: "minio"
+      S3__SecretKey: "minio12345"
+      S3__Bucket: "rdm"
+    
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  rdm_pgdata:
+  rdm_minio:
