@@ -24,6 +24,23 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.Use(async (ctx, next) =>
+{
+    // Mock identity from headers
+    var actor = ctx.Request.Headers["X-Actor"].FirstOrDefault() ?? "anonymous";
+    var role = ctx.Request.Headers["X-Role"].FirstOrDefault() ?? "Viewer";
+
+    // Normalize role
+    role = role.Trim();
+    if (!RdmApi.Security.Roles.IsValid(role))
+        role = RdmApi.Security.Roles.Viewer;
+
+    ctx.Items["actor"] = actor;
+    ctx.Items["role"] = role;
+
+    await next();
+});
+
 
 var summaries = new[]
 {

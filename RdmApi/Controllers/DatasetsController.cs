@@ -5,6 +5,10 @@ using RdmApi.Data;
 using RdmApi.Data.Entities;
 using System.Text.Json;
 using RdmApi.Services;
+using System.Security.Cryptography;
+using RdmApi.Security;
+
+
 
 namespace RdmApi.Controllers;
 
@@ -20,6 +24,9 @@ public class DatasetsController : ControllerBase
         _db = db;
         _store = store;
     }
+    private string CurrentActor =>
+        HttpContext.Items["actor"] as string ?? "anonymous";
+
 
     [HttpPost]
     public async Task<ActionResult<CreateDatasetResponse>> Create([FromBody] CreateDatasetRequest req)
@@ -73,7 +80,8 @@ public class DatasetsController : ControllerBase
         });
     }
     [HttpPost("{id:guid}/versions")]
-    [RequestSizeLimit(1024L * 1024L * 1024L)] // 1GB (adjust later)
+    [RequireRole(Roles.Admin, Roles.Researcher)]
+    [RequestSizeLimit(1024L * 1024L * 1024L)]
     public async Task<IActionResult> UploadVersion(Guid id, IFormFile file, CancellationToken ct)
     {
         if (file is null || file.Length == 0)
@@ -94,16 +102,38 @@ public class DatasetsController : ControllerBase
         var objectKey = $"datasets/{id}/v{nextVersion}/{file.FileName}";
 
         await using var stream = file.OpenReadStream();
-        var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
 
-        await _store.PutAsync(objectKey, stream, contentType, file.Length, ct);
+// Copy to memory so we can hash + upload
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms, ct);
+
+        ms.Position = 0;
+
+// Compute SHA256
+        string hashHex;
+        using (var sha256 = SHA256.Create())
+        {
+            var hashBytes = sha256.ComputeHash(ms);
+            hashHex = Convert.ToHexString(hashBytes).ToLowerInvariant();
+        }
+
+        ms.Position = 0;
+
+        var contentType = string.IsNullOrWhiteSpace(file.ContentType)
+            ? "application/octet-stream"
+            : file.ContentType;
+
+// Upload to MinIO
+        await _store.PutAsync(objectKey, ms, contentType, file.Length, ct);
+
 
         var version = new DatasetVersion
         {
             DatasetId = id,
             VersionNumber = nextVersion,
             StorageKey = objectKey,
-            SizeBytes = file.Length
+            SizeBytes = file.Length, 
+            ContentHashSha256 = hashHex,
         };
 
         _db.DatasetVersions.Add(version);
@@ -121,23 +151,148 @@ public class DatasetsController : ControllerBase
         return Ok(new { datasetId = id, version = nextVersion, storageKey = objectKey, size = file.Length });
     }
     [HttpGet("{id:guid}/versions/{version:int}")]
-    public async Task<IActionResult> DownloadVersion(Guid id, int version, CancellationToken ct)
+public async Task<IActionResult> DownloadVersion(Guid id, int version, CancellationToken ct)
+{
+    var dv = await _db.DatasetVersions
+        .AsNoTracking()
+        .FirstOrDefaultAsync(v => v.DatasetId == id && v.VersionNumber == version, ct);
+
+    if (dv is null || string.IsNullOrWhiteSpace(dv.StorageKey))
+        return NotFound(new { error = "Version not found." });
+
+    var (stream, contentType) = await _store.GetAsync(dv.StorageKey, ct);
+
+    // Read into memory so we can optionally verify hash AND still return the file
+    using var ms = new MemoryStream();
+    await stream.CopyToAsync(ms, ct);
+    ms.Position = 0;
+
+    // Verify integrity only if we have a stored hash
+    if (!string.IsNullOrWhiteSpace(dv.ContentHashSha256))
     {
-        var dv = await _db.DatasetVersions
-            .AsNoTracking()
-            .FirstOrDefaultAsync(v =>
-                v.DatasetId == id && v.VersionNumber == version, ct);
+        string computed;
+        using (var sha256 = SHA256.Create())
+        {
+            var hashBytes = sha256.ComputeHash(ms);
+            computed = Convert.ToHexString(hashBytes).ToLowerInvariant();
+        }
 
-        if (dv is null || string.IsNullOrWhiteSpace(dv.StorageKey))
-            return NotFound(new { error = "Version not found." });
+        if (!string.Equals(computed, dv.ContentHashSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            _db.AuditEvents.Add(new AuditEvent
+            {
+                Actor = "anonymous",
+                Action = "DATASET_VERSION_HASH_MISMATCH",
+                DatasetId = id,
+                DetailJson = JsonSerializer.Serialize(new
+                {
+                    version,
+                    storageKey = dv.StorageKey,
+                    expected = dv.ContentHashSha256,
+                    actual = computed
+                })
+            });
 
-        var (stream, contentType) = await _store.GetAsync(dv.StorageKey, ct);
+            await _db.SaveChangesAsync(ct);
 
-        // If you want a nicer filename, we can store original name later.
-        var fileName = Path.GetFileName(dv.StorageKey);
+            return Conflict(new { error = "Integrity check failed (hash mismatch)." });
+        }
 
-        return File(stream, contentType, fileName);
+        ms.Position = 0; // reset for returning file
     }
+
+    // Log successful download
+    _db.AuditEvents.Add(new AuditEvent
+    {
+        Actor = "anonymous",
+        Action = "DATASET_VERSION_DOWNLOADED",
+        DatasetId = id,
+        DetailJson = JsonSerializer.Serialize(new { version, storageKey = dv.StorageKey })
+    });
+
+    await _db.SaveChangesAsync(ct);
+
+    var fileName = Path.GetFileName(dv.StorageKey);
+    return File(ms.ToArray(), contentType, fileName);
+}
+    [HttpGet]
+    public async Task<IActionResult> Search(
+        [FromQuery] string? query,
+        [FromQuery] int limit = 20,
+        [FromQuery] int offset = 0,
+        CancellationToken ct = default)
+    {
+        limit = Math.Clamp(limit, 1, 100);
+        offset = Math.Max(offset, 0);
+
+        var q = _db.Datasets.AsNoTracking().AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var term = query.Trim();
+
+            // Simple LIKE search (portable + enough for prototype)
+            q = q.Where(d =>
+                EF.Functions.Like(d.Title, $"%{term}%") ||
+                EF.Functions.Like(d.Creator, $"%{term}%") ||
+                (d.Description != null && EF.Functions.Like(d.Description, $"%{term}%")));
+        }
+
+        var results = await q
+            .OrderByDescending(d => d.CreatedAt)
+            .Skip(offset)
+            .Take(limit)
+            .Select(d => new
+            {
+                d.Id,
+                d.Title,
+                d.Creator,
+                d.Description,
+                d.CreatedAt
+            })
+            .ToListAsync(ct);
+
+        return Ok(new { query, limit, offset, count = results.Count, results });
+    }
+
+    
+    [HttpPut("{id:guid}")]
+    [RequireRole(Roles.Admin, Roles.Researcher)]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateDatasetRequest req, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(req.Title))
+            return BadRequest(new { error = "Title is required." });
+
+        var dataset = await _db.Datasets.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (dataset is null) return NotFound(new { error = "Dataset not found." });
+
+        dataset.Title = req.Title.Trim();
+        dataset.Description = req.Description?.Trim();
+
+        _db.AuditEvents.Add(new AuditEvent
+        {
+            Actor = "anonymous",
+            Action = "DATASET_METADATA_UPDATED",
+            DatasetId = dataset.Id,
+            DetailJson = JsonSerializer.Serialize(new
+            {
+                dataset.Title,
+                dataset.Description
+            })
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            dataset.Id,
+            dataset.Title,
+            dataset.Creator,
+            dataset.Description,
+            dataset.CreatedAt
+        });
+    }
+
 
 
 
