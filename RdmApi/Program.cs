@@ -5,32 +5,92 @@ using RdmApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+// Controllers + API explorer (needed for Swagger)
 builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+
+
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    {
+        Title = "RdmApi",
+        Version = "v1"
+    });
+
+    // X-Role
+    c.AddSecurityDefinition("XRoleHeader", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Name = "X-Role",
+        Description = "Prototype role: Admin | Researcher | Viewer"
+    });
+
+    // X-Actor
+    c.AddSecurityDefinition("XActorHeader", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Name = "X-Actor",
+        Description = "Prototype actor identity (e.g., teacher, abdi, researcher1)"
+    });
+
+    // Require both headers (Swagger will send them on every request after Authorize)
+    c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "XRoleHeader"
+                }
+            },
+            Array.Empty<string>()
+        },
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "XActorHeader"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+// DB + services
 builder.Services.AddDbContext<RdmDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
 builder.Services.AddSingleton<S3ObjectStore>();
-
-
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Swagger UI (best for demo)
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// Avoid HTTPS redirect confusion in local demo
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
+// Header-based identity middleware (your prototype RBAC)
 app.Use(async (ctx, next) =>
 {
-    // Mock identity from headers
     var actor = ctx.Request.Headers["X-Actor"].FirstOrDefault() ?? "anonymous";
     var role = ctx.Request.Headers["X-Role"].FirstOrDefault() ?? "Viewer";
 
-    // Normalize role
     role = role.Trim();
     if (!RdmApi.Security.Roles.IsValid(role))
         role = RdmApi.Security.Roles.Viewer;
@@ -41,31 +101,6 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
-
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
 app.MapControllers();
 
-
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

@@ -1,0 +1,36 @@
+using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.SwaggerGen;
+
+namespace RdmApi.Security;
+
+public sealed class SwaggerHeadersOperationFilter : IOperationFilter
+{
+    public void Apply(OpenApiOperation operation, OperationFilterContext context)
+    {
+        operation.Parameters ??= new List<OpenApiParameter>();
+
+        if (!operation.Parameters.Any(p => p.Name == "X-Actor"))
+        {
+            operation.Parameters.Add(new OpenApiParameter
+            {
+                Name = "X-Actor",
+                In = ParameterLocation.Header,
+                Required = false,
+                Description = "Prototype actor identity (e.g., abdi, teacher, researcher1)",
+                Schema = new OpenApiSchema { Type = "string" }
+            });
+        }
+
+        if (!operation.Parameters.Any(p => p.Name == "X-Role"))
+        {
+            operation.Parameters.Add(new OpenApiParameter
+            {
+                Name = "X-Role",
+                In = ParameterLocation.Header,
+                Required = false,
+                Description = "Prototype role: Admin | Researcher | Viewer",
+                Schema = new OpenApiSchema { Type = "string" }
+            });
+        }
+    }
+}

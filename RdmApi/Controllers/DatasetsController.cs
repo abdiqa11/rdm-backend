@@ -292,6 +292,91 @@ public async Task<IActionResult> DownloadVersion(Guid id, int version, Cancellat
             dataset.CreatedAt
         });
     }
+    [HttpPost("{id:guid}/annotations")]
+    [RequireRole(Roles.Admin, Roles.Researcher)]
+    public async Task<IActionResult> CreateAnnotation(Guid id, [FromBody] CreateAnnotationRequest req, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(req.Text))
+            return BadRequest(new { error = "Text is required." });
+
+        // Ensure dataset exists
+        var datasetExists = await _db.Datasets.AsNoTracking().AnyAsync(d => d.Id == id, ct);
+        if (!datasetExists)
+            return NotFound(new { error = "Dataset not found." });
+
+        // Optional: validate version belongs to dataset if provided
+        if (req.DatasetVersionId is not null)
+        {
+            var ok = await _db.DatasetVersions.AsNoTracking()
+                .AnyAsync(v => v.Id == req.DatasetVersionId && v.DatasetId == id, ct);
+
+            if (!ok)
+                return BadRequest(new { error = "DatasetVersionId is invalid for this dataset." });
+        }
+
+        var actor = HttpContext.Items["actor"] as string ?? "anonymous";
+
+        var annotation = new Annotation
+        {
+            DatasetId = id,
+            DatasetVersionId = req.DatasetVersionId,
+            Actor = actor,
+            Text = req.Text.Trim()
+        };
+
+        _db.Annotations.Add(annotation);
+
+        _db.AuditEvents.Add(new AuditEvent
+        {
+            Actor = actor,
+            Action = "DATASET_ANNOTATION_CREATED",
+            DatasetId = id,
+            DetailJson = JsonSerializer.Serialize(new
+            {
+                annotationId = annotation.Id,
+                datasetVersionId = req.DatasetVersionId
+            })
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            annotation.Id,
+            annotation.DatasetId,
+            annotation.DatasetVersionId,
+            annotation.Actor,
+            annotation.Text,
+            annotation.CreatedAt
+        });
+    }
+    [HttpGet("{id:guid}/annotations")]
+    public async Task<IActionResult> ListAnnotations(Guid id, [FromQuery] int take = 50, CancellationToken ct = default)
+    {
+        take = Math.Clamp(take, 1, 200);
+
+        // Ensure dataset exists (optional; but nicer)
+        var datasetExists = await _db.Datasets.AsNoTracking().AnyAsync(d => d.Id == id, ct);
+        if (!datasetExists)
+            return NotFound(new { error = "Dataset not found." });
+
+        var items = await _db.Annotations.AsNoTracking()
+            .Where(a => a.DatasetId == id)
+            .OrderByDescending(a => a.CreatedAt)
+            .Take(take)
+            .Select(a => new
+            {
+                a.Id,
+                a.DatasetId,
+                a.DatasetVersionId,
+                a.Actor,
+                a.Text,
+                a.CreatedAt
+            })
+            .ToListAsync(ct);
+
+        return Ok(new { datasetId = id, take, count = items.Count, items });
+    }
 
 
 

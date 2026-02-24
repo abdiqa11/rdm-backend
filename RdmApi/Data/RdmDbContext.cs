@@ -11,6 +11,7 @@ public class RdmDbContext : DbContext
     public DbSet<Dataset> Datasets => Set<Dataset>();
     public DbSet<DatasetVersion> DatasetVersions => Set<DatasetVersion>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<Annotation> Annotations => Set<Annotation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -29,6 +30,23 @@ public class RdmDbContext : DbContext
         {
             e.Property(x => x.Action).HasMaxLength(100).IsRequired();
             e.Property(x => x.Actor).HasMaxLength(200).IsRequired();
+        });
+        modelBuilder.Entity<Annotation>(e =>
+        {
+            e.Property(x => x.Text).HasMaxLength(4000).IsRequired();
+            e.Property(x => x.Actor).HasMaxLength(200).IsRequired();
+
+            e.HasIndex(x => x.DatasetId);
+
+            e.HasOne(x => x.Dataset)
+                .WithMany()
+                .HasForeignKey(x => x.DatasetId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasOne(x => x.DatasetVersion)
+                .WithMany()
+                .HasForeignKey(x => x.DatasetVersionId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }
