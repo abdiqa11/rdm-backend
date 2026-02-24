@@ -7,3 +7,20 @@ obj/
 *.log
 rdm_pgdata/
 rdm_minio/
+# macOS
+.DS_Store
+
+# .NET build output
+**/bin/
+**/obj/
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# VS Code
+.vscode/
+
+# User-specific files
+*.user
+*.suo
