@@ -24,3 +24,8 @@ rdm_minio/
 # User-specific files
 *.user
 *.suo
+RdmApi/bin/
+RdmApi/obj/
+*.user
+*.suo
+*.log
