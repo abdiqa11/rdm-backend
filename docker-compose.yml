@@ -42,6 +42,7 @@ services:
       minio:
         condition: service_started
     environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
       ASPNETCORE_URLS: "http://+:8080"
       ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=rdmdb;Username=rdm;Password=rdm"
       S3__Endpoint: "minio:9000"
