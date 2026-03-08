@@ -17,6 +17,11 @@ builder.Services.AddSwaggerGen(c =>
         Title = "RdmApi",
         Version = "v1"
     });
+    c.MapType<IFormFile>(() => new Microsoft.OpenApi.Models.OpenApiSchema
+    {
+        Type = "string",
+        Format = "binary"
+    });
 
     // X-Role
     c.AddSecurityDefinition("XRoleHeader", new Microsoft.OpenApi.Models.OpenApiSecurityScheme

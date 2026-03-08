@@ -15,10 +15,16 @@ public class RdmDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+
         modelBuilder.Entity<Dataset>(e =>
         {
             e.Property(x => x.Title).HasMaxLength(300).IsRequired();
             e.Property(x => x.Creator).HasMaxLength(200).IsRequired();
+
+            // ✅ Tags as Postgres text[]
+            e.Property(x => x.Tags)
+                .HasColumnType("text[]");
         });
 
         modelBuilder.Entity<DatasetVersion>(e =>
@@ -31,6 +37,7 @@ public class RdmDbContext : DbContext
             e.Property(x => x.Action).HasMaxLength(100).IsRequired();
             e.Property(x => x.Actor).HasMaxLength(200).IsRequired();
         });
+
         modelBuilder.Entity<Annotation>(e =>
         {
             e.Property(x => x.Text).HasMaxLength(4000).IsRequired();

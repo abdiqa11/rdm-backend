@@ -12,4 +12,5 @@ public class DatasetVersion
     public string? ContentHashSha256 { get; set; }
     public long? SizeBytes { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string? ChangeDescription { get; set; }
 }

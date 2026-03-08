@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using RdmApi.Data;
@@ -11,9 +12,11 @@ using RdmApi.Data;
 namespace RdmApi.Migrations
 {
     [DbContext(typeof(RdmDbContext))]
-    partial class RdmDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260228154323_AddDatasetStatusAndTags")]
+    partial class AddDatasetStatusAndTags
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -107,13 +110,6 @@ namespace RdmApi.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<string[]>("Tags")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(300)
@@ -129,9 +125,6 @@ namespace RdmApi.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
-
-                    b.Property<string>("ChangeDescription")
-                        .HasColumnType("text");
 
                     b.Property<string>("ContentHashSha256")
                         .HasColumnType("text");
