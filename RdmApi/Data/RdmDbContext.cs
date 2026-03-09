@@ -12,6 +12,7 @@ public class RdmDbContext : DbContext
     public DbSet<DatasetVersion> DatasetVersions => Set<DatasetVersion>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<Annotation> Annotations => Set<Annotation>();
+    public DbSet<DatasetRelationship> DatasetRelationships => Set<DatasetRelationship>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,6 +55,21 @@ public class RdmDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.DatasetVersionId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+        
+        modelBuilder.Entity<DatasetRelationship>(b =>
+        {
+            b.HasKey(x => x.Id);
+
+            b.HasOne(x => x.SourceDataset)
+                .WithMany()
+                .HasForeignKey(x => x.SourceDatasetId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasOne(x => x.TargetDataset)
+                .WithMany()
+                .HasForeignKey(x => x.TargetDatasetId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

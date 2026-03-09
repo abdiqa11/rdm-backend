@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using RdmApi.Data;
@@ -11,9 +12,11 @@ using RdmApi.Data;
 namespace RdmApi.Migrations
 {
     [DbContext(typeof(RdmDbContext))]
-    partial class RdmDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260309102040_AddDatasetRelationships")]
+    partial class AddDatasetRelationships
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

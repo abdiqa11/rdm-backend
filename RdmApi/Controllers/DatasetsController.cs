@@ -523,4 +523,54 @@ public async Task<IActionResult> UploadVersion(
 
         return NoContent();
     }
+    
+    // -----------------------
+// Create dataset relationship
+// -----------------------
+    [HttpPost("{id:guid}/relationships")]
+    [RequireRole(Roles.Admin, Roles.Researcher)]
+    public async Task<IActionResult> CreateRelationship(
+        [FromRoute] Guid id,
+        [FromBody] CreateDatasetRelationshipRequest req,
+        CancellationToken ct)
+    {
+        var source = await _db.Datasets.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (source is null)
+            return NotFound(new { error = "Source dataset not found." });
+
+        var target = await _db.Datasets.FirstOrDefaultAsync(x => x.Id == req.TargetDatasetId, ct);
+        if (target is null)
+            return NotFound(new { error = "Target dataset not found." });
+
+        var rel = new DatasetRelationship
+        {
+            SourceDatasetId = id,
+            TargetDatasetId = req.TargetDatasetId,
+            RelationType = req.RelationType,
+        };
+
+        _db.DatasetRelationships.Add(rel);
+
+        _db.AuditEvents.Add(new AuditEvent
+        {
+            Actor = CurrentActor,
+            Action = "DATASET_RELATIONSHIP_CREATED",
+            DatasetId = id,
+            DetailJson = JsonSerializer.Serialize(new
+            {
+                sourceDatasetId = id,
+                targetDatasetId = req.TargetDatasetId,
+                relationType = req.RelationType
+            })
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            sourceDatasetId = id,
+            targetDatasetId = req.TargetDatasetId,
+            relationType = req.RelationType
+        });
+    }
 }
