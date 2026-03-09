@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RdmApi.Data;
+using System.Text.Json;
 
 namespace RdmApi.Controllers;
 
@@ -17,15 +18,27 @@ public class AuditController : ControllerBase
     {
         take = Math.Clamp(take, 1, 200);
 
-        var q = _db.AuditEvents.AsNoTracking();
+        var q = _db.AuditEvents
+            .AsNoTracking()
+            .AsQueryable();
 
         if (datasetId is not null)
             q = q.Where(x => x.DatasetId == datasetId);
 
-        var items = await q
+        var raw = await q
             .OrderByDescending(x => x.Timestamp)
             .Take(take)
             .ToListAsync();
+
+        var items = raw.Select(x => new
+        {
+            x.Timestamp,
+            x.Actor,
+            x.Action,
+            Details = string.IsNullOrEmpty(x.DetailJson)
+                ? null
+                : JsonSerializer.Deserialize<object>(x.DetailJson)
+        });
 
         return Ok(items);
     }

@@ -8,7 +8,7 @@ using RdmApi.Security;
 using RdmApi.Services;
 using System.Security.Cryptography;
 using System.Text.Json;
-using System.Linq;
+
 
 namespace RdmApi.Controllers;
 
@@ -572,5 +572,39 @@ public async Task<IActionResult> UploadVersion(
             targetDatasetId = req.TargetDatasetId,
             relationType = req.RelationType
         });
+    }
+    [HttpGet("{id:guid}/audit")]
+    [RequireRole(Roles.Admin, Roles.Researcher)]
+    public async Task<IActionResult> GetDatasetAudit(
+        [FromRoute] Guid id,
+        [FromQuery] int take = 50,
+        CancellationToken ct = default)
+    {
+        take = Math.Clamp(take, 1, 200);
+
+        var datasetExists = await _db.Datasets
+            .AnyAsync(d => d.Id == id, ct);
+
+        if (!datasetExists)
+            return NotFound(new { error = "Dataset not found." });
+
+        var raw = await _db.AuditEvents
+            .AsNoTracking()
+            .Where(a => a.DatasetId == id)
+            .OrderByDescending(a => a.Timestamp)
+            .Take(take)
+            .ToListAsync(ct);
+
+        var events = raw.Select(a => new
+        {
+            a.Timestamp,
+            a.Actor,
+            a.Action,
+            Details = string.IsNullOrEmpty(a.DetailJson)
+                ? null
+                : System.Text.Json.JsonSerializer.Deserialize<object>(a.DetailJson)
+        });
+
+        return Ok(events);
     }
 }
