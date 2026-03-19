@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RdmApi", "RdmApi\RdmApi.csproj", "{64BE3880-3231-491A-969A-27775631F00C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RdmFrontend", "RdmFrontend\RdmFrontend.csproj", "{66976E9B-21EA-4907-B7EE-F55B7C78AD44}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -18,5 +20,9 @@ Global
 		{64BE3880-3231-491A-969A-27775631F00C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{64BE3880-3231-491A-969A-27775631F00C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{64BE3880-3231-491A-969A-27775631F00C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{66976E9B-21EA-4907-B7EE-F55B7C78AD44}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{66976E9B-21EA-4907-B7EE-F55B7C78AD44}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{66976E9B-21EA-4907-B7EE-F55B7C78AD44}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{66976E9B-21EA-4907-B7EE-F55B7C78AD44}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
