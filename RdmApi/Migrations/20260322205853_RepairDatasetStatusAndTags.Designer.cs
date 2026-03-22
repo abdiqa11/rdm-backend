@@ -12,8 +12,8 @@ using RdmApi.Data;
 namespace RdmApi.Migrations
 {
     [DbContext(typeof(RdmDbContext))]
-    [Migration("20260228154323_AddDatasetStatusAndTags")]
-    partial class AddDatasetStatusAndTags
+    [Migration("20260322205853_RepairDatasetStatusAndTags")]
+    partial class RepairDatasetStatusAndTags
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -110,6 +110,13 @@ namespace RdmApi.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string[]>("Tags")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(300)
@@ -120,11 +127,44 @@ namespace RdmApi.Migrations
                     b.ToTable("Datasets");
                 });
 
+            modelBuilder.Entity("RdmApi.Data.Entities.DatasetRelationship", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RelationType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SourceDatasetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TargetDatasetId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceDatasetId");
+
+                    b.HasIndex("TargetDatasetId");
+
+                    b.ToTable("DatasetRelationships");
+                });
+
             modelBuilder.Entity("RdmApi.Data.Entities.DatasetVersion", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ChangeDescription")
+                        .HasColumnType("text");
 
                     b.Property<string>("ContentHashSha256")
                         .HasColumnType("text");
@@ -168,6 +208,25 @@ namespace RdmApi.Migrations
                     b.Navigation("Dataset");
 
                     b.Navigation("DatasetVersion");
+                });
+
+            modelBuilder.Entity("RdmApi.Data.Entities.DatasetRelationship", b =>
+                {
+                    b.HasOne("RdmApi.Data.Entities.Dataset", "SourceDataset")
+                        .WithMany()
+                        .HasForeignKey("SourceDatasetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RdmApi.Data.Entities.Dataset", "TargetDataset")
+                        .WithMany()
+                        .HasForeignKey("TargetDatasetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("SourceDataset");
+
+                    b.Navigation("TargetDataset");
                 });
 
             modelBuilder.Entity("RdmApi.Data.Entities.DatasetVersion", b =>
