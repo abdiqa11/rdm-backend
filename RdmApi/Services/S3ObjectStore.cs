@@ -11,16 +11,47 @@ public class S3ObjectStore
     public S3ObjectStore(IConfiguration config)
     {
         var section = config.GetSection("S3");
-        var endpoint = section["Endpoint"]!;
-        var accessKey = section["AccessKey"]!;
-        var secretKey = section["SecretKey"]!;
-        _bucket = section["Bucket"]!;
 
-        _minio = new MinioClient()
+        var endpoint = section["Endpoint"];
+        var accessKey = section["AccessKey"];
+        var secretKey = section["SecretKey"];
+        var bucket = section["Bucket"];
+        var useSslRaw = section["UseSsl"];
+
+        if (string.IsNullOrWhiteSpace(endpoint))
+            throw new InvalidOperationException("S3:Endpoint is missing.");
+
+        if (string.IsNullOrWhiteSpace(accessKey))
+            throw new InvalidOperationException("S3:AccessKey is missing.");
+
+        if (string.IsNullOrWhiteSpace(secretKey))
+            throw new InvalidOperationException("S3:SecretKey is missing.");
+
+        if (string.IsNullOrWhiteSpace(bucket))
+            throw new InvalidOperationException("S3:Bucket is missing.");
+
+        if (endpoint.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("S3:Endpoint must not include http:// or https://");
+        }
+
+        var useSsl = false;
+        if (!string.IsNullOrWhiteSpace(useSslRaw) &&
+            !bool.TryParse(useSslRaw, out useSsl))
+        {
+            throw new InvalidOperationException("S3:UseSsl must be true or false.");
+        }
+
+        _bucket = bucket;
+
+        var client = new MinioClient()
             .WithEndpoint(endpoint)
-            .WithCredentials(accessKey, secretKey)
-            .WithSSL(false)
-            .Build();
+            .WithCredentials(accessKey, secretKey);
+
+        client = useSsl ? client.WithSSL() : client.WithSSL(false);
+
+        _minio = client.Build();
     }
 
     public async Task PutAsync(string objectKey, Stream data, string contentType, long size, CancellationToken ct)
@@ -34,9 +65,9 @@ public class S3ObjectStore
 
         await _minio.PutObjectAsync(putArgs, ct);
     }
+
     public async Task<(Stream Stream, string ContentType)> GetAsync(string objectKey, CancellationToken ct)
     {
-        // Get metadata (content-type etc.)
         var stat = await _minio.StatObjectAsync(
             new StatObjectArgs()
                 .WithBucket(_bucket)
@@ -60,5 +91,4 @@ public class S3ObjectStore
 
         return (ms, contentType);
     }
-
 }

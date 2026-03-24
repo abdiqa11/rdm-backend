@@ -16,7 +16,7 @@ builder.Services
     .AddCookie()
     .AddOpenIdConnect(options =>
     {
-        // Still placeholders until mentor gives final OIDC values
+        //while waiting
         options.Authority = "https://placeholder";
         options.ClientId = "placeholder";
         options.ClientSecret = "placeholder";
@@ -24,7 +24,7 @@ builder.Services
         options.ResponseType = "code";
         options.SaveTokens = true;
 
-        // This is the new part based on the mentor message
+      
         options.CallbackPath = "/auth/callback";
 
         // Useful defaults for OIDC
