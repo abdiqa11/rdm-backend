@@ -9,7 +9,6 @@ using RdmApi.Services;
 using System.Security.Cryptography;
 using System.Text.Json;
 
-
 namespace RdmApi.Controllers;
 
 [ApiController]
@@ -41,9 +40,7 @@ public class DatasetsController : ControllerBase
         {
             Title = req.Title.Trim(),
             Creator = req.Creator.Trim(),
-            Description = req.Description?.Trim(),
-            // Status default is in entity: Draft
-            // Tags can remain null or empty depending on your entity definition
+            Description = req.Description?.Trim()
         };
 
         _db.Datasets.Add(dataset);
@@ -78,7 +75,6 @@ public class DatasetsController : ControllerBase
 
         if (dataset is null) return NotFound();
 
-        // Versions overview
         var versionCount = await _db.DatasetVersions.AsNoTracking()
             .Where(v => v.DatasetId == id)
             .CountAsync(ct);
@@ -86,14 +82,13 @@ public class DatasetsController : ControllerBase
         var latestVersion = await _db.DatasetVersions.AsNoTracking()
             .Where(v => v.DatasetId == id)
             .Select(v => (int?)v.VersionNumber)
-            .MaxAsync(ct); // null if none
+            .MaxAsync(ct);
 
-        var totalSizeBytes = await _db.DatasetVersions.AsNoTracking()
-            .Where(v => v.DatasetId == id)
-            .Select(v => (long?)v.SizeBytes)
-            .SumAsync(ct); // null if none
+        var totalSizeBytes = await _db.DatasetVersionFiles.AsNoTracking()
+            .Where(f => f.DatasetVersion.DatasetId == id)
+            .Select(f => (long?)f.SizeBytes)
+            .SumAsync(ct);
 
-        // Annotations overview
         var annotationCount = await _db.Annotations.AsNoTracking()
             .Where(a => a.DatasetId == id)
             .CountAsync(ct);
@@ -107,19 +102,17 @@ public class DatasetsController : ControllerBase
             dataset.CreatedAt,
             dataset.Status,
             dataset.Tags,
-
-            // ✅ Day 3 additions
             versionCount,
-            latestVersion,                 // e.g. 3 (null if no versions)
+            latestVersion,
             totalSizeBytes = totalSizeBytes ?? 0,
             annotationCount
         });
     }
 
-   // -----------------------
-// Upload version
-// -----------------------
-[HttpPost("{id:guid}/versions")]
+    // -----------------------
+    // Upload version
+    // -----------------------
+    [HttpPost("{id:guid}/versions")]
 [RequireRole(Roles.Admin, Roles.Researcher)]
 [RequestSizeLimit(1024L * 1024L * 1024L)]
 [Consumes("multipart/form-data")]
@@ -128,61 +121,172 @@ public async Task<IActionResult> UploadVersion(
     [FromForm] UploadDatasetVersionRequest req,
     CancellationToken ct)
 {
-    var file = req.File;
+    var files = req.Files ?? new List<IFormFile>();
+    var relativePaths = req.RelativePaths ?? new List<string>();
+    var removedPathsRaw = req.RemovedPaths ?? new List<string>();
     var changeDescription = req.ChangeDescription;
-    
-    if (file is null || file.Length == 0)
-        return BadRequest(new { error = "File is required." });
+
+    if (files.Count == 0 && removedPathsRaw.Count == 0)
+        return BadRequest(new { error = "At least one uploaded file or one removed path is required." });
+
+    if (relativePaths.Count > 0 && relativePaths.Count != files.Count)
+        return BadRequest(new { error = "RelativePaths count must match Files count." });
 
     var dataset = await _db.Datasets.FirstOrDefaultAsync(x => x.Id == id, ct);
     if (dataset is null)
         return NotFound(new { error = "Dataset not found." });
 
-    // Next version number
-    var latest = await _db.DatasetVersions
+    var latestVersion = await _db.DatasetVersions
+        .Include(v => v.Files)
         .Where(v => v.DatasetId == id)
         .OrderByDescending(v => v.VersionNumber)
-        .Select(v => (int?)v.VersionNumber)
         .FirstOrDefaultAsync(ct);
 
-    var nextVersion = (latest ?? 0) + 1;
+    var nextVersion = (latestVersion?.VersionNumber ?? 0) + 1;
 
-    var objectKey = $"datasets/{id}/v{nextVersion}/{file.FileName}";
-
-    await using var input = file.OpenReadStream();
-
-    // Copy to memory so we can hash + upload (prototype OK)
-    using var ms = new MemoryStream();
-    await input.CopyToAsync(ms, ct);
-
-    ms.Position = 0;
-
-    // Compute SHA256
-    string hashHex;
-    using (var sha256 = SHA256.Create())
+    string NormalizeRelativePath(string? path, string fallbackFileName)
     {
-        var hashBytes = sha256.ComputeHash(ms);
-        hashHex = Convert.ToHexString(hashBytes).ToLowerInvariant();
+        var value = string.IsNullOrWhiteSpace(path) ? fallbackFileName : path.Trim();
+        value = value.Replace("\\", "/").TrimStart('/');
+
+        while (value.Contains("//"))
+            value = value.Replace("//", "/");
+
+        return value;
     }
 
-    ms.Position = 0;
+    string GetFileNameFromPath(string path)
+    {
+        var normalized = path.Replace("\\", "/");
+        var lastSlash = normalized.LastIndexOf('/');
+        return lastSlash >= 0 ? normalized[(lastSlash + 1)..] : normalized;
+    }
 
-    var contentType = string.IsNullOrWhiteSpace(file.ContentType)
-        ? "application/octet-stream"
-        : file.ContentType;
+    var removedPaths = new HashSet<string>(
+        removedPathsRaw
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => NormalizeRelativePath(p, p)),
+        StringComparer.OrdinalIgnoreCase);
 
-    // Upload to object store
-    await _store.PutAsync(objectKey, ms, contentType, file.Length, ct);
+    var incomingFilesByPath = new Dictionary<string, IFormFile>(StringComparer.OrdinalIgnoreCase);
+
+    for (var i = 0; i < files.Count; i++)
+    {
+        var file = files[i];
+
+        if (file is null || file.Length == 0)
+            return BadRequest(new { error = "All uploaded files must be non-empty." });
+
+        var relativePath = NormalizeRelativePath(
+            relativePaths.Count > 0 ? relativePaths[i] : null,
+            file.FileName);
+
+        if (removedPaths.Contains(relativePath))
+            return BadRequest(new { error = $"Path '{relativePath}' cannot be both uploaded and removed in the same request." });
+
+        if (incomingFilesByPath.ContainsKey(relativePath))
+            return BadRequest(new { error = $"Duplicate uploaded path '{relativePath}'." });
+
+        incomingFilesByPath[relativePath] = file;
+    }
 
     var version = new DatasetVersion
     {
         DatasetId = id,
         VersionNumber = nextVersion,
-        StorageKey = objectKey,
-        SizeBytes = file.Length,
-        ContentHashSha256 = hashHex,
         ChangeDescription = changeDescription
     };
+
+    async Task<DatasetVersionFile> BuildFileEntryFromUploadAsync(IFormFile file, string relativePath)
+    {
+        var objectKey = $"datasets/{id}/v{nextVersion}/{relativePath}";
+
+        await using var input = file.OpenReadStream();
+        using var ms = new MemoryStream();
+        await input.CopyToAsync(ms, ct);
+        ms.Position = 0;
+
+        string hashHex;
+        using (var sha256 = SHA256.Create())
+        {
+            var hashBytes = sha256.ComputeHash(ms);
+            hashHex = Convert.ToHexString(hashBytes).ToLowerInvariant();
+        }
+
+        ms.Position = 0;
+
+        var contentType = string.IsNullOrWhiteSpace(file.ContentType)
+            ? "application/octet-stream"
+            : file.ContentType;
+
+        await _store.PutAsync(objectKey, ms, contentType, file.Length, ct);
+
+        return new DatasetVersionFile
+        {
+            FileName = GetFileNameFromPath(relativePath),
+            RelativePath = relativePath,
+            ObjectKey = objectKey,
+            ContentHashSha256 = hashHex,
+            SizeBytes = file.Length,
+            ContentType = contentType
+        };
+    }
+
+    var handledPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var copiedPaths = new List<string>();
+    var uploadedPaths = new List<string>();
+    var deletedPaths = removedPaths.ToList();
+
+    if (latestVersion is not null)
+    {
+        foreach (var existingFile in latestVersion.Files.OrderBy(f => f.RelativePath ?? f.FileName))
+        {
+            var existingPath = NormalizeRelativePath(existingFile.RelativePath, existingFile.FileName);
+
+            if (removedPaths.Contains(existingPath))
+                continue;
+
+            if (incomingFilesByPath.TryGetValue(existingPath, out var replacementFile))
+            {
+                var uploadedEntry = await BuildFileEntryFromUploadAsync(replacementFile, existingPath);
+                version.Files.Add(uploadedEntry);
+                handledPaths.Add(existingPath);
+                uploadedPaths.Add(existingPath);
+            }
+            else
+            {
+                var newObjectKey = $"datasets/{id}/v{nextVersion}/{existingPath}";
+                await _store.CopyAsync(existingFile.ObjectKey, newObjectKey, ct);
+
+                version.Files.Add(new DatasetVersionFile
+                {
+                    FileName = GetFileNameFromPath(existingPath),
+                    RelativePath = existingPath,
+                    ObjectKey = newObjectKey,
+                    ContentHashSha256 = existingFile.ContentHashSha256,
+                    SizeBytes = existingFile.SizeBytes,
+                    ContentType = existingFile.ContentType
+                });
+
+                handledPaths.Add(existingPath);
+                copiedPaths.Add(existingPath);
+            }
+        }
+    }
+
+    foreach (var pair in incomingFilesByPath)
+    {
+        if (handledPaths.Contains(pair.Key))
+            continue;
+
+        var uploadedEntry = await BuildFileEntryFromUploadAsync(pair.Value, pair.Key);
+        version.Files.Add(uploadedEntry);
+        handledPaths.Add(pair.Key);
+        uploadedPaths.Add(pair.Key);
+    }
+
+    if (version.Files.Count == 0)
+        return BadRequest(new { error = "The resulting dataset version would contain no files." });
 
     _db.DatasetVersions.Add(version);
 
@@ -194,8 +298,9 @@ public async Task<IActionResult> UploadVersion(
         DetailJson = JsonSerializer.Serialize(new
         {
             version = nextVersion,
-            objectKey,
-            size = file.Length,
+            uploadedPaths,
+            copiedPaths,
+            removedPaths = deletedPaths,
             changeDescription
         })
     });
@@ -206,32 +311,109 @@ public async Task<IActionResult> UploadVersion(
     {
         datasetId = id,
         version = nextVersion,
-        storageKey = objectKey,
-        size = file.Length,
+        files = version.Files
+            .OrderBy(f => f.RelativePath)
+            .Select(f => new
+            {
+                fileName = f.FileName,
+                relativePath = f.RelativePath,
+                objectKey = f.ObjectKey,
+                size = f.SizeBytes,
+                contentHashSha256 = f.ContentHashSha256,
+                contentType = f.ContentType
+            }),
+        uploadedPaths,
+        copiedPaths,
+        removedPaths = deletedPaths,
         changeDescription
     });
 }
-    // -----------------------
-    // Download version + integrity check
+
+        // -----------------------
+    // Get version details (metadata + files)
     // -----------------------
     [HttpGet("{id:guid}/versions/{version:int}")]
-    public async Task<IActionResult> DownloadVersion(Guid id, int version, CancellationToken ct)
+    public async Task<IActionResult> GetVersion(Guid id, int version, CancellationToken ct)
     {
         var dv = await _db.DatasetVersions
             .AsNoTracking()
+            .Include(v => v.Files)
             .FirstOrDefaultAsync(v => v.DatasetId == id && v.VersionNumber == version, ct);
 
-        if (dv is null || string.IsNullOrWhiteSpace(dv.StorageKey))
+        if (dv is null)
             return NotFound(new { error = "Version not found." });
 
-        var (stream, contentType) = await _store.GetAsync(dv.StorageKey, ct);
+        var files = dv.Files
+            .OrderBy(f => f.RelativePath)
+            .Select(f => new
+            {
+                fileName = f.FileName,
+                relativePath = f.RelativePath,
+                sizeBytes = f.SizeBytes,
+                contentType = f.ContentType,
+                downloadUrl = $"/datasets/{id}/versions/{version}/files/download?path={Uri.EscapeDataString(f.RelativePath ?? f.FileName)}"
+            });
+
+        return Ok(new
+        {
+            datasetId = id,
+            version = dv.VersionNumber,
+            dv.CreatedAt,
+            dv.ChangeDescription,
+            fileCount = dv.Files.Count,
+            files
+        });
+    }
+
+    // -----------------------
+    // Download one specific file from a version + integrity check
+    // -----------------------
+    [HttpGet("{id:guid}/versions/{version:int}/files/download")]
+    public async Task<IActionResult> DownloadVersionFile(
+        Guid id,
+        int version,
+        [FromQuery] string path,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return BadRequest(new { error = "Query parameter 'path' is required." });
+
+        string NormalizeRelativePath(string value)
+        {
+            value = value.Trim().Replace("\\", "/").TrimStart('/');
+
+            while (value.Contains("//"))
+                value = value.Replace("//", "/");
+
+            return value;
+        }
+
+        var normalizedPath = NormalizeRelativePath(path);
+
+        var dv = await _db.DatasetVersions
+            .Include(v => v.Files)
+            .FirstOrDefaultAsync(v => v.DatasetId == id && v.VersionNumber == version, ct);
+
+        if (dv is null)
+            return NotFound(new { error = "Version not found." });
+
+        var versionFile = dv.Files
+            .FirstOrDefault(f =>
+                string.Equals(
+                    NormalizeRelativePath(f.RelativePath ?? f.FileName),
+                    normalizedPath,
+                    StringComparison.OrdinalIgnoreCase));
+
+        if (versionFile is null || string.IsNullOrWhiteSpace(versionFile.ObjectKey))
+            return NotFound(new { error = "File not found in this version." });
+
+        var (stream, contentType) = await _store.GetAsync(versionFile.ObjectKey, ct);
 
         using var ms = new MemoryStream();
         await stream.CopyToAsync(ms, ct);
         ms.Position = 0;
 
-        // Verify integrity only if we have a stored hash
-        if (!string.IsNullOrWhiteSpace(dv.ContentHashSha256))
+        if (!string.IsNullOrWhiteSpace(versionFile.ContentHashSha256))
         {
             string computed;
             using (var sha256 = SHA256.Create())
@@ -240,18 +422,20 @@ public async Task<IActionResult> UploadVersion(
                 computed = Convert.ToHexString(hashBytes).ToLowerInvariant();
             }
 
-            if (!string.Equals(computed, dv.ContentHashSha256, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(computed, versionFile.ContentHashSha256, StringComparison.OrdinalIgnoreCase))
             {
                 _db.AuditEvents.Add(new AuditEvent
                 {
                     Actor = CurrentActor,
-                    Action = "DATASET_VERSION_HASH_MISMATCH",
+                    Action = "DATASET_VERSION_FILE_HASH_MISMATCH",
                     DatasetId = id,
                     DetailJson = JsonSerializer.Serialize(new
                     {
                         version,
-                        storageKey = dv.StorageKey,
-                        expected = dv.ContentHashSha256,
+                        relativePath = versionFile.RelativePath,
+                        fileName = versionFile.FileName,
+                        storageKey = versionFile.ObjectKey,
+                        expected = versionFile.ContentHashSha256,
                         actual = computed
                     })
                 });
@@ -267,17 +451,23 @@ public async Task<IActionResult> UploadVersion(
         _db.AuditEvents.Add(new AuditEvent
         {
             Actor = CurrentActor,
-            Action = "DATASET_VERSION_DOWNLOADED",
+            Action = "DATASET_VERSION_FILE_DOWNLOADED",
             DatasetId = id,
-            DetailJson = JsonSerializer.Serialize(new { version, storageKey = dv.StorageKey })
+            DetailJson = JsonSerializer.Serialize(new
+            {
+                version,
+                relativePath = versionFile.RelativePath,
+                fileName = versionFile.FileName,
+                storageKey = versionFile.ObjectKey
+            })
         });
 
         await _db.SaveChangesAsync(ct);
 
-        var fileName = Path.GetFileName(dv.StorageKey);
-        return File(ms.ToArray(), contentType, fileName);
+        return File(ms.ToArray(), contentType, versionFile.FileName);
     }
 
+  
     // -----------------------
     // Search (basic)
     // -----------------------
@@ -295,7 +485,6 @@ public async Task<IActionResult> UploadVersion(
 
         var q = _db.Datasets.AsNoTracking().AsQueryable();
 
-        // Text search
         if (!string.IsNullOrWhiteSpace(query))
         {
             var term = query.Trim();
@@ -305,16 +494,13 @@ public async Task<IActionResult> UploadVersion(
                 (d.Description != null && EF.Functions.Like(d.Description, $"%{term}%")));
         }
 
-        // ✅ Filter by status (governance maturity)
         if (status.HasValue)
             q = q.Where(d => d.Status == status.Value);
 
-        // ✅ Filter by tag (category/discoverability)
         if (!string.IsNullOrWhiteSpace(tag))
         {
             var t = tag.Trim();
             q = q.Where(d => d.Tags != null && d.Tags.Contains(t));
-            // If Tags is initialized as Array.Empty<string>(), you can drop `d.Tags != null`
         }
 
         var results = await q
@@ -523,10 +709,10 @@ public async Task<IActionResult> UploadVersion(
 
         return NoContent();
     }
-    
+
     // -----------------------
-// Create dataset relationship
-// -----------------------
+    // Create dataset relationship
+    // -----------------------
     [HttpPost("{id:guid}/relationships")]
     [RequireRole(Roles.Admin, Roles.Researcher)]
     public async Task<IActionResult> CreateRelationship(
@@ -573,6 +759,7 @@ public async Task<IActionResult> UploadVersion(
             relationType = req.RelationType
         });
     }
+
     [HttpGet("{id:guid}/audit")]
     [RequireRole(Roles.Admin, Roles.Researcher)]
     public async Task<IActionResult> GetDatasetAudit(

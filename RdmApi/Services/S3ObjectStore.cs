@@ -66,6 +66,20 @@ public class S3ObjectStore
         await _minio.PutObjectAsync(putArgs, ct);
     }
 
+    public async Task CopyAsync(string sourceObjectKey, string destinationObjectKey, CancellationToken ct)
+    {
+        var copySource = new CopySourceObjectArgs()
+            .WithBucket(_bucket)
+            .WithObject(sourceObjectKey);
+
+        var copyArgs = new CopyObjectArgs()
+            .WithBucket(_bucket)
+            .WithObject(destinationObjectKey)
+            .WithCopyObjectSource(copySource);
+
+        await _minio.CopyObjectAsync(copyArgs, ct);
+    }
+
     public async Task<(Stream Stream, string ContentType)> GetAsync(string objectKey, CancellationToken ct)
     {
         var stat = await _minio.StatObjectAsync(

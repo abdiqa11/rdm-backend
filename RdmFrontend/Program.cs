@@ -17,9 +17,9 @@ builder.Services
     .AddOpenIdConnect(options =>
     {
         //while waiting
-        options.Authority = "https://placeholder";
-        options.ClientId = "placeholder";
-        options.ClientSecret = "placeholder";
+        options.Authority = "https://thurs.uia.no:4444";
+        options.ClientId = "e18dcfcf-975e-44df-8d8d-3dea346cb4d3";
+        options.ClientSecret = "930vEpz58JQgg5uzvUwR5zRpEo";
 
         options.ResponseType = "code";
         options.SaveTokens = true;
@@ -30,8 +30,10 @@ builder.Services
         // Useful defaults for OIDC
         options.Scope.Add("openid");
         options.Scope.Add("profile");
+        options.Scope.Add("email");
+        options.Scope.Add("offline_access");
 
-        // Since values are placeholders for now
+       
         options.RequireHttpsMetadata = false;
     });
 
@@ -46,7 +48,7 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
 

@@ -4,6 +4,8 @@ namespace RdmApi.Contracts.Datasets;
 
 public sealed class UploadDatasetVersionRequest
 {
-    public IFormFile File { get; set; } = default!;
+    public List<IFormFile> Files { get; set; } = new();
+    public List<string>? RelativePaths { get; set; }
+    public List<string>? RemovedPaths { get; set; }
     public string? ChangeDescription { get; set; }
 }

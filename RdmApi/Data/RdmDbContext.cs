@@ -10,6 +10,7 @@ public class RdmDbContext : DbContext
 
     public DbSet<Dataset> Datasets => Set<Dataset>();
     public DbSet<DatasetVersion> DatasetVersions => Set<DatasetVersion>();
+    public DbSet<DatasetVersionFile> DatasetVersionFiles => Set<DatasetVersionFile>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<Annotation> Annotations => Set<Annotation>();
     public DbSet<DatasetRelationship> DatasetRelationships => Set<DatasetRelationship>();
