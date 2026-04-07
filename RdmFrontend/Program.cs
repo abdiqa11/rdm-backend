@@ -1,11 +1,19 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
 builder.Services.AddRazorPages();
+
+builder.Services.AddHttpContextAccessor();
+
+builder.Services.AddHttpClient("RdmApi", client =>
+{
+    client.BaseAddress = new Uri("http://localhost:8095"); // change if backend runs elsewhere
+});
 
 builder.Services
     .AddAuthentication(options =>
@@ -16,62 +24,74 @@ builder.Services
     .AddCookie()
     .AddOpenIdConnect(options =>
     {
-        //while waiting
         options.Authority = "https://thurs.uia.no:4444";
         options.ClientId = "e18dcfcf-975e-44df-8d8d-3dea346cb4d3";
         options.ClientSecret = "930vEpz58JQgg5uzvUwR5zRpEo";
 
         options.ResponseType = "code";
+        options.ResponseMode = "query";
         options.SaveTokens = true;
+        options.GetClaimsFromUserInfoEndpoint = true;
 
-      
         options.CallbackPath = "/auth/callback";
 
-        // Useful defaults for OIDC
         options.Scope.Add("openid");
         options.Scope.Add("profile");
         options.Scope.Add("email");
         options.Scope.Add("offline_access");
 
-       
         options.RequireHttpsMetadata = false;
+
+        options.CorrelationCookie.SameSite = SameSiteMode.Lax;
+        options.NonceCookie.SameSite = SameSiteMode.Lax;
     });
 
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+var forwardedHeadersOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedProto |
+        ForwardedHeaders.XForwardedHost
+};
+
+forwardedHeadersOptions.KnownNetworks.Clear();
+forwardedHeadersOptions.KnownProxies.Clear();
+
+app.UseForwardedHeaders(forwardedHeadersOptions);
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
     app.UseHsts();
 }
 
-//app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Login endpoint: sends user to OIDC provider
 app.Map("/login", async context =>
 {
-    await context.ChallengeAsync(OpenIdConnectDefaults.AuthenticationScheme, new AuthenticationProperties
+    var props = new AuthenticationProperties
     {
         RedirectUri = "/"
-    });
+    };
+
+    props.Items["prompt"] = "login";
+
+    await context.ChallengeAsync(OpenIdConnectDefaults.AuthenticationScheme, props);
 });
 
-// Optional logout endpoint
 app.Map("/logout", async context =>
 {
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-    await context.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme, new AuthenticationProperties
-    {
-        RedirectUri = "/"
-    });
+    context.Response.Redirect("/");
 });
 
 app.MapRazorPages();

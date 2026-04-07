@@ -31,6 +31,7 @@ public class DatasetsController : ControllerBase
     // Create dataset
     // -----------------------
     [HttpPost]
+    [RequireRole(Roles.Admin, Roles.Researcher)]
     public async Task<ActionResult<CreateDatasetResponse>> Create([FromBody] CreateDatasetRequest req, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.Creator))

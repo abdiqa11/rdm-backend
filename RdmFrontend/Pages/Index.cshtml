@@ -1,10 +1,109 @@
 ﻿@page
 @model IndexModel
 @{
-    ViewData["Title"] = "Home page";
+    ViewData["Title"] = "Home";
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+<div class="p-4 p-md-5 mb-4 bg-white border rounded-3 shadow-sm">
+    <div class="row align-items-center">
+        <div class="col-lg-8">
+            <h1 class="display-5 fw-bold text-primary">Research Data Management Interface</h1>
+            <p class="lead mb-3">
+                RDMI is a prototype platform for managing research datasets, metadata, and governed access workflows.
+            </p>
+            <p class="text-muted mb-0">
+                This frontend demonstrates FEIDE authentication and server-side RBAC enforcement in the RDMI backend.
+            </p>
+        </div>
+        <div class="col-lg-4 mt-4 mt-lg-0">
+            <div class="card border-0 bg-light">
+                <div class="card-body">
+                    <h5 class="card-title">Session Status</h5>
+
+                    @if (Model.IsAuthenticated)
+                    {
+                        <p class="mb-2">
+                            <span class="badge bg-success">Authenticated</span>
+                        </p>
+                        <p class="mb-1"><strong>Email:</strong></p>
+                        <p class="text-break mb-0">@Model.ActorEmail</p>
+                    }
+                    else
+                    {
+                        <p class="mb-3">
+                            <span class="badge bg-secondary">Not signed in</span>
+                        </p>
+                        <a href="/login" class="btn btn-primary">Login with FEIDE</a>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body">
+                <h4 class="card-title">Authentication Flow</h4>
+                <p class="card-text">
+                    Users authenticate through FEIDE in the frontend. The frontend then forwards the authenticated identity
+                    to the backend using the <code>X-Actor</code> header.
+                </p>
+                <p class="card-text mb-0">
+                    The backend maps the authenticated identity to an internal role and enforces access through RDMI RBAC.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body">
+                <h4 class="card-title">Backend RBAC Test</h4>
+
+                @if (Model.IsAuthenticated)
+                {
+                    <p class="card-text">
+                        This test attempts to create a dataset through the backend. The result depends on the role mapped
+                        to the authenticated FEIDE identity.
+                    </p>
+
+                    <form method="post" asp-page-handler="TestBackend">
+                        <button type="submit" class="btn btn-primary">Run RBAC backend test</button>
+                    </form>
+                }
+                else
+                {
+                    <p class="card-text mb-0">
+                        Sign in first to test backend authorization with your authenticated identity.
+                    </p>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (Model.BackendStatusCode != null)
+{
+    <div class="card shadow-sm mt-4">
+        <div class="card-body">
+            <h4 class="card-title">Backend Response</h4>
+
+            @if (Model.BackendStatusCode >= 200 && Model.BackendStatusCode < 300)
+            {
+                <p>
+                    <span class="badge bg-success">Status: @Model.BackendStatusCode</span>
+                </p>
+            }
+            else
+            {
+                <p>
+                    <span class="badge bg-danger">Status: @Model.BackendStatusCode</span>
+                </p>
+            }
+
+            <pre class="bg-light p-3 border rounded" style="white-space:pre-wrap;">@Model.BackendResponse</pre>
+        </div>
+    </div>
+}

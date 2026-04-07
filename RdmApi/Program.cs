@@ -22,39 +22,19 @@ builder.Services.AddSwaggerGen(c =>
         Type = "string",
         Format = "binary"
     });
-
-    // X-Role
-    c.AddSecurityDefinition("XRoleHeader", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-    {
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Name = "X-Role",
-        Description = "Prototype role: Admin | Researcher | Viewer"
-    });
-
+    
     // X-Actor
     c.AddSecurityDefinition("XActorHeader", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
         In = Microsoft.OpenApi.Models.ParameterLocation.Header,
         Name = "X-Actor",
-        Description = "Prototype actor identity (e.g., teacher, abdi, researcher1)"
+        Description = "Authenticated user identity (for example FEIDE email)"
     });
 
-    // Require both headers (Swagger will send them on every request after Authorize)
+    // Require  Actor header (Swagger will send it on every request after Authorize)
     c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
     {
-        {
-            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-            {
-                Reference = new Microsoft.OpenApi.Models.OpenApiReference
-                {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                    Id = "XRoleHeader"
-                }
-            },
-            Array.Empty<string>()
-        },
         {
             new Microsoft.OpenApi.Models.OpenApiSecurityScheme
             {
@@ -74,6 +54,7 @@ builder.Services.AddDbContext<RdmDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddSingleton<S3ObjectStore>();
+builder.Services.AddSingleton<RdmApi.Security.UserRoleResolver>();
 
 var app = builder.Build();
 
@@ -90,16 +71,22 @@ if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 }
 
-// Header-based identity middleware (your prototype RBAC)
 app.Use(async (ctx, next) =>
 {
-    var actor = ctx.Request.Headers["X-Actor"].FirstOrDefault() ?? "anonymous";
-    var role = ctx.Request.Headers["X-Role"].FirstOrDefault() ?? "Viewer";
+    var resolver = ctx.RequestServices.GetRequiredService<RdmApi.Security.UserRoleResolver>();
 
-    role = role.Trim();
-    if (!RdmApi.Security.Roles.IsValid(role))
-        role = RdmApi.Security.Roles.Viewer;
+    // 1. Get actor (from frontend → FEIDE identity)
+    var actor = ctx.Request.Headers["X-Actor"].FirstOrDefault();
 
+    if (string.IsNullOrWhiteSpace(actor))
+        actor = "anonymous";
+
+    actor = actor.Trim();
+
+    // 2. Resolve role from backend config (NOT from headers anymore)
+    var role = resolver.ResolveRole(actor);
+
+    // 3. Store in HttpContext (used by RequireRoleAttribute)
     ctx.Items["actor"] = actor;
     ctx.Items["role"] = role;
 

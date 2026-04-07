@@ -1,0 +1,64 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - RDMI Frontend</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/RdmFrontend.styles.css" asp-append-version="true" />
+</head>
+<body class="bg-light">
+    <header>
+        <nav class="navbar navbar-expand-sm navbar-dark bg-primary shadow-sm mb-4">
+            <div class="container">
+                <a class="navbar-brand fw-bold" asp-area="" asp-page="/Index">RDMI Frontend</a>
+
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"
+                        aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <div id="mainNav" class="navbar-collapse collapse">
+                    <ul class="navbar-nav me-auto mb-2 mb-sm-0">
+                        <li class="nav-item">
+                            <a class="nav-link" asp-area="" asp-page="/Index">Home</a>
+                        </li>
+                    </ul>
+
+                    <div class="d-flex align-items-center gap-3">
+                        @if (User.Identity?.IsAuthenticated ?? false)
+                        {
+                            <span class="text-white-50 small">Signed in</span>
+                            <a class="btn btn-outline-light btn-sm" href="/logout">Logout</a>
+                        }
+                        else
+                        {
+                            <span class="text-white-50 small">Not signed in</span>
+                            <a class="btn btn-light btn-sm" href="/login">Login with FEIDE</a>
+                        }
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div class="container">
+        <main role="main" class="pb-4">
+            @RenderBody()
+        </main>
+    </div>
+
+    <footer class="border-top bg-white text-muted mt-5">
+        <div class="container py-3">
+            &copy; 2026 - RDMI Frontend
+        </div>
+    </footer>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
