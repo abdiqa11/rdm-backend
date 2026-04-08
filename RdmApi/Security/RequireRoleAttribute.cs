@@ -56,9 +56,9 @@ public class RequireRoleAttribute : Attribute, IAsyncActionFilter
             await db.SaveChangesAsync();
         }
 
-        context.Result = new ObjectResult(new { error = "Forbidden", role, required = _allowed })
-        {
-            StatusCode = StatusCodes.Status403Forbidden
-        };
+        context.Result = new ObjectResult(new { error = "Forbidden", actor, role, required = _allowed })
+{
+    StatusCode = StatusCodes.Status403Forbidden
+};
     }
 }

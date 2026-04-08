@@ -44,6 +44,15 @@ builder.Services
 
         options.CorrelationCookie.SameSite = SameSiteMode.Lax;
         options.NonceCookie.SameSite = SameSiteMode.Lax;
+        
+        options.Events = new OpenIdConnectEvents
+        {
+            OnRedirectToIdentityProvider = context =>
+            {
+                context.ProtocolMessage.RedirectUri = "https://ikt302-g35.internal.uia.no/auth/callback";
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();

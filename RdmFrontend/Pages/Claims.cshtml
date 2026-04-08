@@ -3,6 +3,17 @@
 
 <h1>User Claims</h1>
 
+@if (!string.IsNullOrEmpty(Model.AccessToken))
+{
+    <h3>Access Token</h3>
+    <textarea style="width:100%; height:150px;">@Model.AccessToken</textarea>
+}
+@if (!string.IsNullOrEmpty(Model.IdToken))
+{
+    <h3>ID Token</h3>
+    <textarea style="width:100%; height:150px;">@Model.IdToken</textarea>
+}
+
 @if (!Model.UserClaims.Any())
 {
     <p>No claims found.</p>
@@ -11,10 +22,10 @@ else
 {
     <table class="table">
         <thead>
-            <tr>
-                <th>Type</th>
-                <th>Value</th>
-            </tr>
+        <tr>
+            <th>Type</th>
+            <th>Value</th>
+        </tr>
         </thead>
         <tbody>
         @foreach (var claim in Model.UserClaims)
