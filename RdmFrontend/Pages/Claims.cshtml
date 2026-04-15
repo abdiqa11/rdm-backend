@@ -1,40 +1,64 @@
 @page
 @model RdmFrontend.Pages.ClaimsModel
-
-<h1>User Claims</h1>
-
-@if (!string.IsNullOrEmpty(Model.AccessToken))
-{
-    <h3>Access Token</h3>
-    <textarea style="width:100%; height:150px;">@Model.AccessToken</textarea>
-}
-@if (!string.IsNullOrEmpty(Model.IdToken))
-{
-    <h3>ID Token</h3>
-    <textarea style="width:100%; height:150px;">@Model.IdToken</textarea>
+@{
+    ViewData["Title"] = "Authentication Details";
 }
 
-@if (!Model.UserClaims.Any())
-{
-    <p>No claims found.</p>
-}
-else
-{
-    <table class="table">
-        <thead>
-        <tr>
-            <th>Type</th>
-            <th>Value</th>
-        </tr>
-        </thead>
-        <tbody>
-        @foreach (var claim in Model.UserClaims)
-        {
-            <tr>
-                <td>@claim.Type</td>
-                <td>@claim.Value</td>
-            </tr>
-        }
-        </tbody>
-    </table>
-}
+<div class="container mt-4">
+    <h1 class="mb-3">Authentication Details</h1>
+    <p class="text-muted">
+        This page shows the authenticated user's access token and claims for demo and backend testing purposes.
+    </p>
+
+    @if (!string.IsNullOrWhiteSpace(Model.AccessToken))
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                <h3 class="card-title">Access Token</h3>
+                <p class="text-muted mb-2">
+                    Use this token in Swagger to authorize requests against protected backend endpoints.
+                </p>
+                <textarea class="form-control" rows="8" readonly>@Model.AccessToken</textarea>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-warning">
+            No access token was found for the current session.
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-body">
+            <h3 class="card-title">User Claims</h3>
+
+            @if (!Model.UserClaims.Any())
+            {
+                <p class="mb-0">No claims found.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 35%;">Type</th>
+                                <th>Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var claim in Model.UserClaims)
+                            {
+                                <tr>
+                                    <td>@claim.Type</td>
+                                    <td>@claim.Value</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>

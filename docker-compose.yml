@@ -32,7 +32,7 @@ services:
       S3__Endpoint: "10.225.211.40:80"
       S3__AccessKey: "8JOU3IXU0PBENO571FUD"
       S3__SecretKey: "wyfVKXNNt4SxM21jqTVLxvxYlGyzssEGibcUP4U4"
-      S3__Bucket: "rdm-datasets"
+      S3__Bucket: "test-bucket"
       S3__UseSsl: "false"
     ports:
       - "8080:8080"
