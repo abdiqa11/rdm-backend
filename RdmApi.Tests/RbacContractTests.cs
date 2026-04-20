@@ -81,6 +81,11 @@ public class RbacContractTests
         Assert.Null(adminGate);
         var adminCreate = await admin.Create(request, default);
         Assert.IsType<CreatedResult>(adminCreate.Result);
+
+        var researcherCreated = await db.Datasets
+            .AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Title == "Created DS" && d.OwnerId == "researcher-sub");
+        Assert.NotNull(researcherCreated);
     }
 
     [Fact]
