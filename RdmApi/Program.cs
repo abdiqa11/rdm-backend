@@ -129,10 +129,14 @@ app.Use(async (ctx, next) =>
 
                     if (active)
                     {
+                        var sub = TryGetString(root, "sub");
+                        var email = TryGetString(root, "email");
+                        var preferredUsername = TryGetString(root, "preferred_username");
+
                         actor =
-                            TryGetString(root, "email") ??
-                            TryGetString(root, "preferred_username") ??
-                            TryGetString(root, "sub") ??
+                            sub ??
+                            email ??
+                            preferredUsername ??
                             "authenticated-user";
 
                         actor = actor.Trim();
@@ -143,17 +147,16 @@ app.Use(async (ctx, next) =>
                             new Claim("actor", actor)
                         };
 
-                        var email = TryGetString(root, "email");
                         if (!string.IsNullOrWhiteSpace(email))
                         {
                             claims.Add(new Claim(ClaimTypes.Email, email));
                             claims.Add(new Claim("email", email));
                         }
 
-                        var sub = TryGetString(root, "sub");
                         if (!string.IsNullOrWhiteSpace(sub))
                         {
                             claims.Add(new Claim("sub", sub));
+                            claims.Add(new Claim(ClaimTypes.NameIdentifier, sub));
                         }
 
                         var identity = new ClaimsIdentity(claims, "Introspection");
@@ -182,7 +185,12 @@ app.Use(async (ctx, next) =>
         Console.WriteLine("AUTH DEBUG: no bearer token found");
     }
 
-    role = resolver.ResolveRole(actor);
+    role = resolver.ResolveRole(
+        ctx.User.FindFirst("sub")?.Value,
+        ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value,
+        ctx.User.FindFirst(ClaimTypes.Email)?.Value,
+        ctx.User.FindFirst("email")?.Value,
+        actor);
 
     Console.WriteLine($"ROLE DEBUG: actor={actor}, role={role}");
 
