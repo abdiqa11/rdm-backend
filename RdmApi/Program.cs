@@ -59,6 +59,7 @@ builder.Services.AddDbContext<RdmDbContext>(options =>
 
 builder.Services.AddSingleton<S3ObjectStore>();
 builder.Services.AddSingleton<RdmApi.Security.UserRoleResolver>();
+builder.Services.AddSingleton<RdmApi.Security.DatasetOwnershipAuthorizer>();
 builder.Services.AddHttpClient();
 builder.Services.AddAuthorization();
 

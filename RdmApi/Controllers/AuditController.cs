@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RdmApi.Data;
+using RdmApi.Security;
 using System.Text.Json;
 
 namespace RdmApi.Controllers;
@@ -14,6 +15,7 @@ public class AuditController : ControllerBase
     public AuditController(RdmDbContext db) => _db = db;
 
     [HttpGet]
+    [RequireRole(Roles.Admin)]
     public async Task<IActionResult> List([FromQuery] Guid? datasetId = null, [FromQuery] int take = 50)
     {
         take = Math.Clamp(take, 1, 200);

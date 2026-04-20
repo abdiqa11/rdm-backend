@@ -23,6 +23,8 @@ public class RdmDbContext : DbContext
         {
             e.Property(x => x.Title).HasMaxLength(300).IsRequired();
             e.Property(x => x.Creator).HasMaxLength(200).IsRequired();
+            e.Property(x => x.OwnerId).HasMaxLength(200);
+            e.Property(x => x.OwnerEmail).HasMaxLength(320);
 
             // ✅ Tags as Postgres text[]
             e.Property(x => x.Tags)

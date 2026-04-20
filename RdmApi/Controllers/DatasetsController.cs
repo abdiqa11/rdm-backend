@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -19,15 +20,27 @@ public class DatasetsController : ControllerBase
 {
     private readonly RdmDbContext _db;
     private readonly S3ObjectStore _store;
+    private readonly DatasetOwnershipAuthorizer _ownershipAuthorizer;
 
-    public DatasetsController(RdmDbContext db, S3ObjectStore store)
+    public DatasetsController(
+        RdmDbContext db,
+        S3ObjectStore store,
+        DatasetOwnershipAuthorizer ownershipAuthorizer)
     {
         _db = db;
         _store = store;
+        _ownershipAuthorizer = ownershipAuthorizer;
     }
 
     private string CurrentActor =>
         HttpContext.Items["actor"] as string ?? "anonymous";
+
+    private IActionResult? EnsureCanManageDataset(Dataset dataset)
+    {
+        return _ownershipAuthorizer.CanManageDataset(HttpContext, dataset)
+            ? null
+            : Forbid();
+    }
 
     // -----------------------
     // Create dataset
@@ -38,6 +51,11 @@ public class DatasetsController : ControllerBase
         [FromBody] CreateDatasetRequest req,
         CancellationToken ct)
     {
+        var ownerId = _ownershipAuthorizer.GetCurrentOwnerId(HttpContext) ?? CurrentActor;
+        var ownerEmail =
+            User.FindFirst(ClaimTypes.Email)?.Value
+            ?? User.FindFirst("email")?.Value;
+
         if (string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.Creator))
             return BadRequest(new { error = "Title and Creator are required." });
 
@@ -45,7 +63,9 @@ public class DatasetsController : ControllerBase
         {
             Title = req.Title.Trim(),
             Creator = req.Creator.Trim(),
-            Description = req.Description?.Trim()
+            Description = req.Description?.Trim(),
+            OwnerId = string.IsNullOrWhiteSpace(ownerId) ? null : ownerId.Trim(),
+            OwnerEmail = string.IsNullOrWhiteSpace(ownerEmail) ? null : ownerEmail.Trim()
         };
 
         _db.Datasets.Add(dataset);
@@ -179,6 +199,10 @@ public class DatasetsController : ControllerBase
         var dataset = await _db.Datasets.FirstOrDefaultAsync(x => x.Id == id, ct);
         if (dataset is null)
             return NotFound(new { error = "Dataset not found." });
+
+        var ownershipResult = EnsureCanManageDataset(dataset);
+        if (ownershipResult is not null)
+            return ownershipResult;
 
         var latestVersion = await _db.DatasetVersions
             .Include(v => v.Files)
@@ -809,6 +833,10 @@ public async Task<IActionResult> DownloadVersionAsZip(
         if (dataset is null)
             return NotFound(new { error = "Dataset not found." });
 
+        var ownershipResult = EnsureCanManageDataset(dataset);
+        if (ownershipResult is not null)
+            return ownershipResult;
+
         dataset.Title = req.Title.Trim();
         dataset.Description = req.Description?.Trim();
 
@@ -850,6 +878,14 @@ public async Task<IActionResult> DownloadVersionAsZip(
         var datasetExists = await _db.Datasets.AsNoTracking().AnyAsync(d => d.Id == id, ct);
         if (!datasetExists)
             return NotFound(new { error = "Dataset not found." });
+
+        var dataset = await _db.Datasets.FirstOrDefaultAsync(d => d.Id == id, ct);
+        if (dataset is null)
+            return NotFound(new { error = "Dataset not found." });
+
+        var ownershipResult = EnsureCanManageDataset(dataset);
+        if (ownershipResult is not null)
+            return ownershipResult;
 
         if (req.DatasetVersionId is not null)
         {
@@ -931,7 +967,7 @@ public async Task<IActionResult> DownloadVersionAsZip(
     // Status
     // -----------------------
     [HttpPut("{id:guid}/status")]
-    [RequireRole(Roles.Researcher, Roles.Admin)]
+    [RequireRole(Roles.Admin)]
     public async Task<IActionResult> UpdateStatus(
         Guid id,
         [FromBody] UpdateDatasetStatusRequest req,
@@ -940,6 +976,10 @@ public async Task<IActionResult> DownloadVersionAsZip(
         var ds = await _db.Datasets.FirstOrDefaultAsync(d => d.Id == id, ct);
         if (ds is null)
             return NotFound(new { error = "Dataset not found." });
+
+        var ownershipResult = EnsureCanManageDataset(ds);
+        if (ownershipResult is not null)
+            return ownershipResult;
 
         ds.Status = req.Status;
 
@@ -970,6 +1010,10 @@ public async Task<IActionResult> DownloadVersionAsZip(
         if (ds is null)
             return NotFound(new { error = "Dataset not found." });
 
+        var ownershipResult = EnsureCanManageDataset(ds);
+        if (ownershipResult is not null)
+            return ownershipResult;
+
         var tags = (req.Tags ?? Array.Empty<string>())
             .Where(t => !string.IsNullOrWhiteSpace(t))
             .Select(t => t.Trim())
@@ -995,7 +1039,7 @@ public async Task<IActionResult> DownloadVersionAsZip(
     // Create dataset relationship
     // -----------------------
     [HttpPost("{id:guid}/relationships")]
-    [RequireRole(Roles.Admin, Roles.Researcher)]
+    [RequireRole(Roles.Admin)]
     public async Task<IActionResult> CreateRelationship(
         [FromRoute] Guid id,
         [FromBody] CreateDatasetRelationshipRequest req,
@@ -1008,6 +1052,14 @@ public async Task<IActionResult> DownloadVersionAsZip(
         var target = await _db.Datasets.FirstOrDefaultAsync(x => x.Id == req.TargetDatasetId, ct);
         if (target is null)
             return NotFound(new { error = "Target dataset not found." });
+
+        var sourceOwnershipResult = EnsureCanManageDataset(source);
+        if (sourceOwnershipResult is not null)
+            return sourceOwnershipResult;
+
+        var targetOwnershipResult = EnsureCanManageDataset(target);
+        if (targetOwnershipResult is not null)
+            return targetOwnershipResult;
 
         var rel = new DatasetRelationship
         {
@@ -1042,7 +1094,7 @@ public async Task<IActionResult> DownloadVersionAsZip(
     }
 
     [HttpGet("{id:guid}/audit")]
-    [RequireRole(Roles.Admin, Roles.Researcher)]
+    [RequireRole(Roles.Admin)]
     public async Task<IActionResult> GetDatasetAudit(
         [FromRoute] Guid id,
         [FromQuery] int take = 50,

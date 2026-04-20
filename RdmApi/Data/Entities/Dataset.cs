@@ -16,6 +16,8 @@ public class Dataset
     public string Title { get; set; } = null!;
     public string? Description { get; set; }
     public string Creator { get; set; } = null!;
+    public string? OwnerId { get; set; }
+    public string? OwnerEmail { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
