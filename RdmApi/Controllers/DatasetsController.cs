@@ -146,6 +146,27 @@ public class DatasetsController : ControllerBase
     // -----------------------
     // Upload version
     // -----------------------
+    /// <summary>
+    /// Uploads a new dataset version using one of two mutually exclusive modes.
+    /// </summary>
+    /// <remarks>
+    /// Mode A (ZIP mode):
+    /// - Provide <c>ZipFile</c>.
+    /// - Do not provide <c>RelativePaths</c>.
+    /// - Internal ZIP entry paths are used as target paths and drive path-based replacement.
+    ///
+    /// Example ZIP replacement:
+    /// - Previous version contains: <c>test_folder/id.docx</c>
+    /// - ZIP contains entry: <c>test_folder/id.docx</c>
+    /// - Result: that path is replaced in the new snapshot.
+    ///
+    /// Mode B (direct file mode):
+    /// - Provide <c>Files</c> (and optionally <c>RelativePaths</c>).
+    /// - Do not provide <c>ZipFile</c>.
+    /// - If <c>RelativePaths</c> is provided, it must match <c>Files</c> count.
+    ///
+    /// In both modes, files not replaced and not removed are copied from the previous version snapshot.
+    /// </remarks>
     [HttpPost("{id:guid}/versions")]
     [RequireRole(Roles.Admin, Roles.Researcher)]
     [RequestSizeLimit(1024L * 1024L * 1024L)]
@@ -184,7 +205,7 @@ public class DatasetsController : ControllerBase
         {
             return BadRequest(new
             {
-                error = "RelativePaths cannot be used together with ZipFile. ZIP entry paths are used automatically."
+                error = "RelativePaths cannot be used together with ZipFile. In ZIP mode, file paths are taken from the ZIP entry paths, and replacement is path-based against the previous version snapshot."
             });
         }
 
@@ -967,7 +988,7 @@ public async Task<IActionResult> DownloadVersionAsZip(
     // Status
     // -----------------------
     [HttpPut("{id:guid}/status")]
-    [RequireRole(Roles.Admin)]
+    [RequireRole(Roles.Admin, Roles.Researcher)]
     public async Task<IActionResult> UpdateStatus(
         Guid id,
         [FromBody] UpdateDatasetStatusRequest req,
@@ -1039,12 +1060,16 @@ public async Task<IActionResult> DownloadVersionAsZip(
     // Create dataset relationship
     // -----------------------
     [HttpPost("{id:guid}/relationships")]
-    [RequireRole(Roles.Admin)]
+    [RequireRole(Roles.Admin, Roles.Researcher)]
     public async Task<IActionResult> CreateRelationship(
         [FromRoute] Guid id,
         [FromBody] CreateDatasetRelationshipRequest req,
         CancellationToken ct)
     {
+        var relationType = req.RelationType?.Trim();
+        if (string.IsNullOrWhiteSpace(relationType))
+            return BadRequest(new { error = "RelationType is required." });
+
         var source = await _db.Datasets.FirstOrDefaultAsync(x => x.Id == id, ct);
         if (source is null)
             return NotFound(new { error = "Source dataset not found." });
@@ -1053,19 +1078,26 @@ public async Task<IActionResult> DownloadVersionAsZip(
         if (target is null)
             return NotFound(new { error = "Target dataset not found." });
 
+        if (id == req.TargetDatasetId)
+            return BadRequest(new { error = "A dataset cannot be linked to itself." });
+
         var sourceOwnershipResult = EnsureCanManageDataset(source);
         if (sourceOwnershipResult is not null)
             return sourceOwnershipResult;
 
-        var targetOwnershipResult = EnsureCanManageDataset(target);
-        if (targetOwnershipResult is not null)
-            return targetOwnershipResult;
+        var duplicateExists = await _db.DatasetRelationships.AnyAsync(r =>
+            r.SourceDatasetId == id
+            && r.TargetDatasetId == req.TargetDatasetId
+            && r.RelationType.ToLower() == relationType.ToLower(),
+            ct);
+        if (duplicateExists)
+            return Conflict(new { error = "Relationship already exists." });
 
         var rel = new DatasetRelationship
         {
             SourceDatasetId = id,
             TargetDatasetId = req.TargetDatasetId,
-            RelationType = req.RelationType
+            RelationType = relationType
         };
 
         _db.DatasetRelationships.Add(rel);
@@ -1079,7 +1111,7 @@ public async Task<IActionResult> DownloadVersionAsZip(
             {
                 sourceDatasetId = id,
                 targetDatasetId = req.TargetDatasetId,
-                relationType = req.RelationType
+                relationType
             })
         });
 
@@ -1089,7 +1121,7 @@ public async Task<IActionResult> DownloadVersionAsZip(
         {
             sourceDatasetId = id,
             targetDatasetId = req.TargetDatasetId,
-            relationType = req.RelationType
+            relationType
         });
     }
 

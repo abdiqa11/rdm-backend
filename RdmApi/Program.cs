@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using RdmApi.Data;
@@ -20,6 +21,13 @@ builder.Services.AddSwaggerGen(c =>
         Title = "RdmApi",
         Version = "v1"
     });
+
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
+    }
 
     c.MapType<IFormFile>(() => new OpenApiSchema
     {
@@ -192,6 +200,11 @@ app.Use(async (ctx, next) =>
         ctx.User.FindFirst("email")?.Value,
         actor);
 
+    var resolvedEmail =
+        ctx.User.FindFirst(ClaimTypes.Email)?.Value
+        ?? ctx.User.FindFirst("email")?.Value
+        ?? "unknown-email";
+    Console.WriteLine($"User {resolvedEmail} resolved as role {role}");
     Console.WriteLine($"ROLE DEBUG: actor={actor}, role={role}");
 
     ctx.Items["actor"] = actor;

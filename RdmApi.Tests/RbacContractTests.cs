@@ -184,18 +184,104 @@ public class RbacContractTests
         var researcherStatusGate = await EvaluateRequireRoleAsync(researcher, nameof(DatasetsController.UpdateStatus));
         var adminStatusGate = await EvaluateRequireRoleAsync(admin, nameof(DatasetsController.UpdateStatus));
         Assert403(viewerStatusGate);
-        Assert403(researcherStatusGate);
+        Assert.Null(researcherStatusGate);
         Assert.Null(adminStatusGate);
 
         var viewerRelationshipGate = await EvaluateRequireRoleAsync(viewer, nameof(DatasetsController.CreateRelationship));
         var researcherRelationshipGate = await EvaluateRequireRoleAsync(researcher, nameof(DatasetsController.CreateRelationship));
         var adminRelationshipGate = await EvaluateRequireRoleAsync(admin, nameof(DatasetsController.CreateRelationship));
         Assert403(viewerRelationshipGate);
-        Assert403(researcherRelationshipGate);
+        Assert.Null(researcherRelationshipGate);
         Assert.Null(adminRelationshipGate);
 
         Assert.IsType<OkObjectResult>(await CreateAuditController(db, Roles.Admin, "admin@uia.no", "admin-sub").List());
         Assert.IsType<OkObjectResult>(await admin.GetDatasetAudit(ds1.Id, 10, default));
+    }
+
+    [Fact]
+    public async Task DatasetCurationEndpoints_AdminAndOwnerResearcherAllowed_NonOwnerAndViewerDenied()
+    {
+        await using var db = CreateDb();
+
+        var ownerDataset = new Dataset { Id = Guid.NewGuid(), Title = "Owner DS", Creator = "creator", OwnerId = "owner-sub" };
+        var targetDataset = new Dataset { Id = Guid.NewGuid(), Title = "Target DS", Creator = "creator", OwnerId = "different-owner" };
+        db.Datasets.AddRange(ownerDataset, targetDataset);
+        await db.SaveChangesAsync();
+
+        var viewer = CreateDatasetsController(db, Roles.Viewer, "viewer@uia.no", "viewer-sub");
+        var owner = CreateDatasetsController(db, Roles.Researcher, "owner@uia.no", "owner-sub");
+        var nonOwner = CreateDatasetsController(db, Roles.Researcher, "other@uia.no", "other-sub");
+        var admin = CreateDatasetsController(db, Roles.Admin, "admin@uia.no", "admin-sub");
+
+        // 1) Admin on any dataset -> success
+        Assert.IsType<NoContentResult>(await admin.UpdateStatus(ownerDataset.Id, new UpdateDatasetStatusRequest { Status = DatasetStatus.InReview }, default));
+        Assert.IsType<NoContentResult>(await admin.UpdateTags(ownerDataset.Id, new UpdateDatasetTagsRequest { Tags = new[] { "admin-tag" } }, default));
+        Assert.IsType<OkObjectResult>(await admin.CreateRelationship(
+            ownerDataset.Id,
+            new CreateDatasetRelationshipRequest { TargetDatasetId = targetDataset.Id, RelationType = "derived_from" },
+            default));
+
+        // 2) Owner Researcher on own dataset -> success
+        Assert.IsType<NoContentResult>(await owner.UpdateStatus(ownerDataset.Id, new UpdateDatasetStatusRequest { Status = DatasetStatus.Draft }, default));
+        Assert.IsType<NoContentResult>(await owner.UpdateTags(ownerDataset.Id, new UpdateDatasetTagsRequest { Tags = new[] { "owner-tag" } }, default));
+        Assert.IsType<OkObjectResult>(await owner.CreateRelationship(
+            ownerDataset.Id,
+            new CreateDatasetRelationshipRequest { TargetDatasetId = targetDataset.Id, RelationType = "related_to" },
+            default));
+
+        // 3) Non-owner Researcher on another user's dataset -> 403
+        Assert.IsType<ForbidResult>(await nonOwner.UpdateStatus(ownerDataset.Id, new UpdateDatasetStatusRequest { Status = DatasetStatus.Published }, default));
+        Assert.IsType<ForbidResult>(await nonOwner.UpdateTags(ownerDataset.Id, new UpdateDatasetTagsRequest { Tags = new[] { "blocked" } }, default));
+        Assert.IsType<ForbidResult>(await nonOwner.CreateRelationship(
+            ownerDataset.Id,
+            new CreateDatasetRelationshipRequest { TargetDatasetId = targetDataset.Id, RelationType = "related_to" },
+            default));
+
+        // 4) Viewer on dataset -> 403 (blocked by role gate)
+        Assert403(await EvaluateRequireRoleAsync(viewer, nameof(DatasetsController.UpdateStatus)));
+        Assert403(await EvaluateRequireRoleAsync(viewer, nameof(DatasetsController.UpdateTags)));
+        Assert403(await EvaluateRequireRoleAsync(viewer, nameof(DatasetsController.CreateRelationship)));
+    }
+
+    [Fact]
+    public async Task CreateRelationship_ValidatesTargetAndSelfLinkAndDuplicates()
+    {
+        await using var db = CreateDb();
+
+        var source = new Dataset { Id = Guid.NewGuid(), Title = "Source", Creator = "creator", OwnerId = "owner-sub" };
+        var target = new Dataset { Id = Guid.NewGuid(), Title = "Target", Creator = "creator", OwnerId = "other-sub" };
+        db.Datasets.AddRange(source, target);
+        await db.SaveChangesAsync();
+
+        var owner = CreateDatasetsController(db, Roles.Researcher, "owner@uia.no", "owner-sub");
+
+        // Missing target dataset
+        var missingTarget = await owner.CreateRelationship(
+            source.Id,
+            new CreateDatasetRelationshipRequest { TargetDatasetId = Guid.NewGuid(), RelationType = "related_to" },
+            default);
+        Assert.IsType<NotFoundObjectResult>(missingTarget);
+
+        // Self-link disallowed
+        var selfLink = await owner.CreateRelationship(
+            source.Id,
+            new CreateDatasetRelationshipRequest { TargetDatasetId = source.Id, RelationType = "related_to" },
+            default);
+        Assert.IsType<BadRequestObjectResult>(selfLink);
+
+        // First link succeeds
+        var first = await owner.CreateRelationship(
+            source.Id,
+            new CreateDatasetRelationshipRequest { TargetDatasetId = target.Id, RelationType = "related_to" },
+            default);
+        Assert.IsType<OkObjectResult>(first);
+
+        // Duplicate link blocked (case-insensitive relation type)
+        var duplicate = await owner.CreateRelationship(
+            source.Id,
+            new CreateDatasetRelationshipRequest { TargetDatasetId = target.Id, RelationType = "RELATED_TO" },
+            default);
+        Assert.IsType<ConflictObjectResult>(duplicate);
     }
 
     private static void Assert403(IActionResult? result)
