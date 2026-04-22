@@ -2,10 +2,13 @@ using System.Security.Claims;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Reflection;
+using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using RdmApi.Data;
 using RdmApi.Services;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -69,6 +72,17 @@ builder.Services.AddSingleton<S3ObjectStore>();
 builder.Services.AddSingleton<RdmApi.Security.UserRoleResolver>();
 builder.Services.AddSingleton<RdmApi.Security.DatasetOwnershipAuthorizer>();
 builder.Services.AddHttpClient();
+
+builder.Services
+    .AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = "Introspection";
+        options.DefaultChallengeScheme = "Introspection";
+        options.DefaultForbidScheme = "Introspection";
+    })
+    .AddScheme<AuthenticationSchemeOptions, IntrospectionAuthenticationHandler>(
+        "Introspection",
+        _ => { });
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
@@ -86,6 +100,8 @@ if (!app.Environment.IsDevelopment())
 }
 
 // Opaque token introspection middleware
+app.UseAuthentication();
+
 app.Use(async (ctx, next) =>
 {
     var resolver = ctx.RequestServices.GetRequiredService<RdmApi.Security.UserRoleResolver>();
@@ -228,4 +244,38 @@ static string? TryGetString(JsonElement root, string propertyName)
     }
 
     return null;
+}
+
+sealed class IntrospectionAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
+{
+    public IntrospectionAuthenticationHandler(
+        IOptionsMonitor<AuthenticationSchemeOptions> options,
+        ILoggerFactory logger,
+        UrlEncoder encoder)
+        : base(options, logger, encoder)
+    {
+    }
+
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        if (Context.User?.Identity?.IsAuthenticated == true)
+        {
+            return Task.FromResult(AuthenticateResult.Success(
+                new AuthenticationTicket(Context.User, Scheme.Name)));
+        }
+
+        return Task.FromResult(AuthenticateResult.NoResult());
+    }
+
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        Response.StatusCode = StatusCodes.Status401Unauthorized;
+        return Task.CompletedTask;
+    }
+
+    protected override Task HandleForbiddenAsync(AuthenticationProperties properties)
+    {
+        Response.StatusCode = StatusCodes.Status403Forbidden;
+        return Task.CompletedTask;
+    }
 }
