@@ -549,6 +549,7 @@ public class DatasetsController : ControllerBase
         return Ok(new
         {
             datasetId = id,
+            versionId = dv.Id,
             version = dv.VersionNumber,
             dv.CreatedAt,
             dv.ChangeDescription,
